@@ -1,5 +1,5 @@
 const fs = require("fs");
-const axios = require("axios")
+const axios = require("axios");
 const express = require('express');
 let mysql = require('../Utils/dbConnection');
 
@@ -28,9 +28,10 @@ const instaganttApi = async (req, res, next) => {
     let dpdarr = [];
     let userAssignee = [];
     try{
-        const response = await axios.get(snapshot_url+`.json`);
-        if(response){
-            let snapshot = await response.data;
+        // const response = await axios.get(snapshot_url+`.json`);
+        if(true){
+            // let snapshot = await response.data;
+            let snapshot = req.snapshot;
             const {tasks, project} = snapshot;
             project_name = project.name;
             project_id = project.id;
@@ -93,7 +94,7 @@ const instaganttApi = async (req, res, next) => {
                     , on_cp
                     , assignees
                     , parseInt(tasks[i].progress.replace(/[^a-zA-Z0-9 ]/g, ''))
-                    , tasks[i].completed
+                    , tasks[i].completed == "" ? false : tasks[i].completed 
                     , tasks[i].start ? tasks[i].start : tasks[i].container.start
                     , tasks[i].due ? tasks[i].due : tasks[i].container.due
                     , snapshot_date
@@ -142,11 +143,12 @@ const instaganttApi = async (req, res, next) => {
         return res.status(201).json({ status: 1, 
                                     project_id: project_id, 
                                     snapshot_date: snapshot_date, 
-                                    message: "snasphot created " }
-                                );
+                                    message: "snasphot created", 
+                                    warnings: req.warnings
+                                });
     }
     catch(err){
-        await tempConnection.releaseConnection();
+        // await tempConnection.releaseConnection();
         console.log(err);
         return res.status(500).json({
             status: 0,

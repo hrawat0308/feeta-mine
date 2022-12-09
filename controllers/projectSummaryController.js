@@ -209,7 +209,23 @@ const taskDetails = async (req, res, next) => {
     const snapshot_date = req.query.snapshot_date;
     try{
         tempConnection = await mysql.connection();
-        const task_details = await tempConnection.query(`SELECT gantt_chart.project_name, gantt_chart.project_uid, gantt_chart.uid, gantt_chart.task_title, gantt_chart.start_date, gantt_chart.end_date, gantt_chart.task_type, user_mapping.user_name FROM gantt_chart INNER JOIN user_task_map ON gantt_chart.project_uid=user_task_map.project_id and gantt_chart.uid = user_task_map.task_uid and gantt_chart.snapshot_date = user_task_map.snapshot_date INNER JOIN user_mapping on user_task_map.assignee_id = user_mapping.user_id and gantt_chart.snapshot_date='${snapshot_date}' and gantt_chart.project_uid = '${project_id}'`);
+        let task_details = await tempConnection.query(`SELECT gantt_chart.project_name, gantt_chart.project_uid, gantt_chart.uid, gantt_chart.task_title, gantt_chart.start_date, gantt_chart.end_date, gantt_chart.task_type, user_mapping.user_name FROM gantt_chart INNER JOIN user_task_map ON gantt_chart.project_uid=user_task_map.project_id and gantt_chart.uid = user_task_map.task_uid and gantt_chart.snapshot_date = user_task_map.snapshot_date INNER JOIN user_mapping on user_task_map.assignee_id = user_mapping.user_id and gantt_chart.snapshot_date='${snapshot_date}' and gantt_chart.project_uid = '${project_id}'`);
+        if(task_details.length == 0){
+            let task_details_without_assignees = await tempConnection.query(`SELECT gantt_chart.project_name, gantt_chart.project_uid, gantt_chart.uid,
+            gantt_chart.task_title, gantt_chart.start_date, gantt_chart.end_date, 
+            gantt_chart.task_type
+            FROM gantt_chart INNER JOIN user_task_map ON gantt_chart.project_uid=user_task_map.project_id 
+            and gantt_chart.uid = user_task_map.task_uid 
+            and gantt_chart.snapshot_date = user_task_map.snapshot_date
+            and gantt_chart.is_Parent = false and gantt_chart.is_milestone = false 
+            and gantt_chart.snapshot_date='${snapshot_date}' and gantt_chart.project_uid = '${project_id}';`);
+        
+            task_details = task_details_without_assignees.map((task)=>{
+                task.user_name = "NA"
+                return task;
+            });
+            // return res.status(200).json({ status: 1, task_details_without_assignees });
+        }
         res.status(200).json({ status: 1, task_details });
     }
     catch(error){
