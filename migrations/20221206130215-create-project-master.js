@@ -12,7 +12,7 @@ module.exports = {
       },
       project_id: {
         type: Sequelize.STRING,
-        unique: true,
+        // unique: true,
       },
       project: {
         type: Sequelize.STRING
@@ -27,6 +27,13 @@ module.exports = {
         type: Sequelize.DATEONLY
       },
       goal_end_date: {
+        type: Sequelize.DATEONLY
+      },
+      gantt_url: {
+        type: Sequelize.STRING,
+        unique: true
+      },
+      snapshot_date: {
         type: Sequelize.DATEONLY
       },
       createdAt: {

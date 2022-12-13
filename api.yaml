@@ -291,6 +291,95 @@ paths:
                 type: integer
               message:
                 type: string
+  /latest-project-summary:
+    get:
+      summary: return latest snapshot project summary
+      description: This provides various details about project
+      parameters:
+        - in: query
+          name: project_id
+          type: string
+          description: project id of the
+      responses:
+        200:
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+              progress:
+                type: integer
+              timeElapsed:
+                type: integer
+              bufferUsed: 
+                type: integer
+              expected_end:
+                type: object
+                properties:
+                  days_left: 
+                    type: integer
+                  end_date:
+                    type: string
+              project_id:
+                type: string     
+              snapshot_date:
+                type: string
+              compare_to:
+                type: string
+              del_goalEnd:
+                type: integer
+              delNextMilestone:
+                type: integer
+              delBufferLastWeek:
+                type: integer
+              delTotalRework:
+                type: integer
+              delReworkLastWeek:
+                type: integer
+              milestone_task:
+                type: array
+                items: 
+                  type: object
+                  properties: 
+                    id:
+                      type: number
+                    name:
+                      type: string
+                    deadline: 
+                      type: string
+                    delayed_status:
+                      type: string
+              overdue_tasks_data:
+                type: array
+                items: 
+                  type: object
+                  properties: 
+                    id:
+                      type: number
+                    delay_days:
+                      type: string
+                    task_name: 
+                      type: string
+                    deadline:
+                      type: string
+                    assigned_to:
+                      typee: array
+        404:
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+              message:
+                type: string
+        500:
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+              message:
+                type: string
   /task-details:
     get:
       summary: return project task details

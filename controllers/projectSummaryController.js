@@ -36,7 +36,8 @@ const snapshotDates = async (req, res, next) => {
     let tempConnection;
     try{
         tempConnection = await mysql.connection();
-        const snapshot_dates = await tempConnection.query(`SELECT DISTINCT snapshot_date FROM gantt_chart WHERE project_uid='${project_id}'`);
+        // const snapshot_dates = await tempConnection.query(`SELECT DISTINCT snapshot_date FROM gantt_chart WHERE project_uid='${project_id}'`);
+        const snapshot_dates = await tempConnection.query(`select distinct DATE_FORMAT(snapshot_date, "%Y-%m-%d") as snapshot_date from gantt_chart where project_uid = '${project_id}';`);
         let snapshotDates = [];
         for(let i = 0; i < snapshot_dates.length; i++){
             snapshotDates.push({
@@ -68,6 +69,97 @@ const taskContributors = async (req, res, next) => {
         return res.status(500).json({ status: 0, message: "SERVER_ERROR" });
     }
 }
+
+// get latest project summary i.e of latest snapshot
+const loadLatestProjectSummary = async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({
+            status: 0,
+            msg: "Project ID is not provided!!"
+        });
+    }
+    let tempConnection;
+    const project_id = req.query.project_id;
+    let snapshot_date;
+    try{
+        tempConnection = await mysql.connection();
+        
+        //get latest snapshot date 
+        snapshot_date = await tempConnection.query(`select DATE_FORMAT(MAX(snapshot_date), "%Y-%m-%d") as snapshot_date from project_master where project_id='${project_id}';`);
+        snapshot_date = snapshot_date[0].snapshot_date;
+
+        // find progress
+        const progress_res = await tempConnection.query(`select sum(progress) as currProgress, COUNT(*) as total_progress from gantt_chart where project_uid = '${project_id}' and snapshot_date = '${snapshot_date}'`);
+        const progress = parseInt(Math.round(progress_res[0].currProgress / progress_res[0].total_progress));
+
+        // time elapsed
+        const projectDates = await tempConnection.query(`select DATE_FORMAT(min(start_date), "%Y-%m-%d") as start_date, DATE_FORMAT(MAX(end_date), "%Y-%m-%d") as due_date, DATE_FORMAT(snapshot_date, "%Y-%m-%d") as curr_date from gantt_chart where project_uid = '${project_id}' and snapshot_date='${snapshot_date}';`);
+        const start_date = new Date(projectDates[0].start_date);
+        const due_date = new Date(projectDates[0].due_date);
+        const curr_date = new Date(projectDates[0].curr_date);
+        const total_days_assigned = diffDays(due_date, start_date)+1;
+        const total_days_elapsed = diffDays(curr_date, start_date)+1;
+        const timeElapsed = parseInt(Math.ceil((total_days_elapsed / total_days_assigned) * 100));
+        
+        //expected end date
+        let days_left = diffDays(due_date, curr_date)+1;
+        if(curr_date > due_date){
+            days_left = -days_left;
+        }
+        let expected_end = { days_left, expected_end_date: getFormattedDate(due_date)};
+        
+        //overdue tasks
+        let overdue_tasks_data = await tempConnection.query(`select task_id, task_title, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, assignees from gantt_chart where project_uid = '${project_id}' and snapshot_date='${snapshot_date}' and snapshot_date > end_date and completed is false and is_milestone is false and is_parent is false;`);
+        for(let i = 0; i < overdue_tasks_data.length; i++){
+            overdue_tasks_data[i].deadline = getFormattedDate(new Date(overdue_tasks_data[i].end_date));
+            let assignee_names = [];
+            overdue_tasks_data[i].delay_days = diffDays(new Date(snapshot_date), new Date(overdue_tasks_data[i].end_date)); 
+            const assignees = JSON.parse(overdue_tasks_data[i].assignees);
+            for(let j = 0; j < assignees.length; j++){
+                const user_names = await tempConnection.query(`select user_name from user_mapping where user_id = '${assignees[j]}'`);
+                if(user_names.length != 0){
+                    assignee_names.push(user_names[0].user_name);
+                }
+            }
+            overdue_tasks_data[i].assigned_to = assignee_names.join(", ");
+            delete overdue_tasks_data[i].assignees;
+            delete overdue_tasks_data[i].end_date;
+        }
+
+        //milestones
+        let milestone_task = await tempConnection.query(`SELECT task_id, task_title, DATE_FORMAT(end_date, "%Y-%m-%d") as end_date, completed FROM gantt_chart WHERE is_milestone is true and project_uid = '${project_id}' and snapshot_date = '${snapshot_date}' order by end_date;`);
+        for(let i = 0; i < milestone_task.length; i++){
+            milestone_task[i].deadline = getFormattedDate(new Date(milestone_task[i].end_date));
+            if(new Date(milestone_task[i].end_date) >= new Date(snapshot_date)){
+                milestone_task[i].status = "Upcoming";
+            }
+            else{
+                milestone_task[i].status = !milestone_task[i].completed ? "Not Completed" : "Completed"; 
+            }
+            delete milestone_task[i].completed;
+            delete milestone_task[i].end_date;
+        }
+
+        //notes 
+        let notes = await tempConnection.query(`select id, note, DATE_FORMAT(createdAt, "%d-%b-%Y %l:%i %p") as created_at from project_notes where project_id='${project_id}';`);
+
+
+        await tempConnection.releaseConnection();
+        res.json({
+            project_details: {  project_id, snapshot_date, compare_to: "", progress, timeElapsed, bufferUsed: 0, expected_end   },
+            overdue_tasks_data,
+            milestone_task,
+            notes
+        });
+    }
+    catch(error){
+        await tempConnection.releaseConnection();
+        console.log(error);
+        return res.status(500).json({ status: 0, message: "SERVER_ERROR" });
+    }
+}
+
 
 // get project summary by comparing two snapshots of a project 
 const projectSummary = async (req, res, next) => {
@@ -105,9 +197,7 @@ const projectSummary = async (req, res, next) => {
 
         const total_days_assigned = Math.ceil(diff_time_assigned / (1000 * 60 * 60 * 24));
         const total_days_elapsed = Math.ceil(diff_time_elapsed / (1000 * 60 * 60 * 24));
-
         const timeElapsed = parseInt(Math.ceil((total_days_elapsed / total_days_assigned) * 100));
-
         //days left for delivery
         const diff_time_left = Math.abs(due_date - curr_date);
         const days_left = Math.ceil(diff_time_left / (1000 * 60 * 60 * 24));
@@ -124,6 +214,8 @@ const projectSummary = async (req, res, next) => {
         overdue_tasks_data = await tempConnection.query(`select task_id, task_title, end_date, assignees from gantt_chart  where project_uid = '${project_id}' and snapshot_date='${snapshot_date}' and snapshot_date > end_date and completed=0;`);
         
         for (var i = 0; i < overdue_tasks_data.length; i++) {
+            //this is dummy delay days, later compute the delay days here
+            overdue_tasks_data[i].delay_days = 2;
             let assignee_names = [];
             const assignee = JSON.parse(overdue_tasks_data[i].assignees);
             // console.log(assignee);
@@ -294,8 +386,6 @@ const performanceMetrics = async (req, res, next) => {
         const actdata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, start_date, end_date, snapshot_date from gantt_chart where snapshot_date = '${snapshot_date}' and is_parent = 0  order by start_date`);
         const basedata = JSON.parse(JSON.stringify(basedata_query));
         const actdata = JSON.parse(JSON.stringify(actdata_query));
-        console.log("basedata",basedata);
-        console.log("actdata", actdata);
         const delayArray = [];
         const baselineData = [];
         for (var i = 0; i < basedata.length; i++) {
@@ -314,13 +404,17 @@ const performanceMetrics = async (req, res, next) => {
             }
         }
         let diffAEBE;
+        let numOfNonWorkingDays;
         for (var i = 0; i < delayArray.length; i++) {
             if (delayArray[i].base_end_date) {
                 diffAEBE = diffDays_inPerformance(new Date(delayArray[i].end_date), new Date(delayArray[i].base_end_date));
+                numOfNonWorkingDays = checkWeekends(new Date(delayArray[i].start_date), new Date(delayArray[i].end_date));
                 // console.log(diffAEBE);
                 delayArray[i]["AEsubBE"] = diffAEBE;
                 delayArray[i]["predec_delay"] = 0;
                 delayArray[i]["net_delay"] = 0;
+                delayArray[i]["num_of_nonWorkingDays"] = numOfNonWorkingDays;
+                delayArray[i]["user_delay"] = [];
             }
             else {
                 delayArray[i]["base_end_date"] = "NA";
@@ -329,6 +423,7 @@ const performanceMetrics = async (req, res, next) => {
                 delayArray[i]["AEsubBE"] = diffAEBE;
                 delayArray[i]["predec_delay"] = 0;
                 delayArray[i]["net_delay"] = 0;
+                delayArray[i]["user_delay"] = [];
             }
         }
         let delayedArr = delayArray.sort((a, b) => Date.parse(new Date(a.start_date)) - Date.parse(new Date(b.start_date)));
@@ -375,7 +470,7 @@ const performanceMetrics = async (req, res, next) => {
                                 delayedArr.find(b => {
                                     if (b.uid == successor_uid) {
                                         b.predec_delay = predecessor_delay;
-                                        b.net_delay = b.AEsubBE - b.predec_delay
+                                        b.net_delay = b.AEsubBE - b.predec_delay - b.num_of_nonWorkingDays
                                     }
                                 });
                             }
@@ -391,7 +486,7 @@ const performanceMetrics = async (req, res, next) => {
                             if (b.uid == successor_uid) {
                                 console.log(b.task_title);
                                 b.predec_delay = predecessor_delay;
-                                b.net_delay = b.AEsubBE - b.predec_delay;
+                                b.net_delay = b.AEsubBE - b.predec_delay - b.num_of_nonWorkingDays;
                             }
                         });
                     }
@@ -401,12 +496,18 @@ const performanceMetrics = async (req, res, next) => {
 
         let user_delay = [];
         for (var i = 0; i < delayedArr.length; i++) {
-            let res = await tempConnection.query(`select user_name from user_mapping where user_id in (select assignee_id from user_task_map where task_uid = '${delayedArr[i].uid}' and snapshot_date='${snapshot_date}') and user_project_id = '${project_id}' `);
+            let res = await tempConnection.query(`select user_id,user_name from user_mapping where user_id in (select assignee_id from user_task_map where task_uid = '${delayedArr[i].uid}' and snapshot_date='${snapshot_date}') and user_project_id = '${project_id}' `);
             if (res.length > 0) {
                 let userNetDelay = [];
+                userNetDelay.push(res[0].user_id);
                 userNetDelay.push(res[0].user_name);
                 userNetDelay.push(delayedArr[i].net_delay);
                 user_delay.push(userNetDelay);
+                delayArray[i]["user_delay"].push({
+                    user_id : res[0].user_id,
+                    user_name: res[0].user_name,
+                    user_net_delay : delayedArr[i].net_delay
+                });
             }
         }
         console.log("This is user delay", user_delay);
@@ -487,7 +588,90 @@ const diffDays_inPerformance = (max_date, min_date) =>{
     const timeDiff = max_date - min_date;
     const dayDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
     return dayDiff
-  }
+}
+
+// get this from database or somewhere else as this is diff for diff projects
+//This is DUMMY, later get it from payload
+const working_days = {
+    "0": false,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true,
+    "5": true,
+    "6": false
+}
+
+//dates array from payload, DUMMY
+const payload_dates = [
+    {
+        "name": "Shiv's vacation",
+        "start": "2022-07-28",
+        "end": "2022-08-18",
+        "id": "3IdPDQyxRIB3P4GwTLcd",
+        "is_holiday": true,
+        "disabled": false,
+        "user_id": "sHrvocS1DHZL4ss1h9xA"
+    },
+    {
+        "name": "Guru Nanak Jayanti",
+        "start": "2022-11-15",
+        "end": "2022-11-17",
+        "id": "eB5kOMfDZiQxnPFHFRCB",
+        "is_holiday": true,
+        "disabled": false,
+        "user_id": false
+    }
+];
+
+const checkWeekends = (start_date, end_date)=>{
+    let count = 0;
+    let loop = new Date(start_date);
+    while(loop <= end_date){
+        //checking if any day b/w start and end date was a weekend ????
+
+        //simply checking if the day was saturday or sunday
+        // if(loop.getDay() == 6 || loop.getDay() == 0){
+        //     count++;
+        // }
+        
+        //checking if it was a working day or not by comparing dates from working_day object from JSON payload
+        if(!working_days[loop.getDay()]){
+            count++;
+        }
+
+        // check if any date b/w start and end date was a company holiday ???
+        for(let i = 0; i < payload_dates.length; i++){
+            if(payload_dates[i]["user_id"] == false){
+                if(payload_dates[i]["start"] == loop.getFullYear()+"-"+(loop.getMonth()+1)+"-"+loop.getDate()){   
+                    let numOfDays = numOfCompanyHoliday(new Date(payload_dates[i]["start"]), new Date(payload_dates[i]["end"]));
+                    count += numOfDays;
+                }
+            }
+        }
+        let newDate = loop.setDate(loop.getDate()+1);
+        loop = new Date(newDate);
+    }
+    return count;
+}
+
+const numOfCompanyHoliday = (start_date, end_date) => {
+    let count = 0;
+    let loop = new Date(start_date);
+    while(loop <= end_date){
+        count++;
+        let newDate = loop.setDate(loop.getDate()+1);
+        loop = new Date(newDate);
+    }
+    return count;
+}
+
+const getFormattedDate = (date) => {
+    let ye = new Intl.DateTimeFormat('en', { year: 'numeric' }).format(date);
+    let mo = new Intl.DateTimeFormat('en', { month: 'short' }).format(date);
+    let da = new Intl.DateTimeFormat('en', { day: '2-digit' }).format(date);
+    return `${da}-${mo}-${ye}`; 
+}
 
 exports.allProjects = allProjects;
 exports.snapshotDates = snapshotDates;
@@ -498,3 +682,4 @@ exports.contributorDetail = contributorDetail;
 exports.performanceMetrics = performanceMetrics;
 exports.addNote = addNote;
 exports.getNote = getNote;
+exports.loadLatestProjectSummary = loadLatestProjectSummary;

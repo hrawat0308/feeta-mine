@@ -21,6 +21,7 @@ router.get('/contributor-data', projectSummaryController.contributorDetail);
 router.get('/performance', projectSummaryController.performanceMetrics);
 router.post('/add-note', projectSummaryController.addNote);
 router.get('/get-notes/:id', projectSummaryController.getNote);
+router.get('/latest-project-summary', projectSummaryController.loadLatestProjectSummary);
 
 
 //**NO validation required */

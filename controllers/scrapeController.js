@@ -20,6 +20,7 @@ const scrape = async (req, res, next) => {
 
 const instaganttApi = async (req, res, next) => {
     let { snapshot_date, snapshot_url } = req.body;
+    snapshot_date = new Date(snapshot_date).toISOString().substring(0,10);
     let tempConnection;
     let project_name;
     let project_id;
@@ -27,6 +28,7 @@ const instaganttApi = async (req, res, next) => {
     const dpdmap = new Map();
     let dpdarr = [];
     let userAssignee = [];
+    let projectDetails = [];
     try{
         // const response = await axios.get(snapshot_url+`.json`);
         if(true){
@@ -36,6 +38,7 @@ const instaganttApi = async (req, res, next) => {
             project_name = project.name;
             project_id = project.id;
 
+            projectDetails = [project_id, project_name, req.body.snapshot_url, snapshot_date];
             //creating assginee and user assignee array
             for(let i = 0; i < tasks.length; i++){
                 let assignee = [];
@@ -117,6 +120,10 @@ const instaganttApi = async (req, res, next) => {
         //** Establish MySQL connection */
         tempConnection = await mysql.connection();
 
+        //** Insert into project master */
+        await tempConnection.query('INSERT INTO project_master (project_id, project, gantt_url, snapshot_date) values (?)', [projectDetails]);
+        console.log("Project master data inserted");
+
         //** INSERT TO GANTT_TABLE */
         await tempConnection.query('INSERT INTO gantt_chart (uid, project_uid, task_title, is_parent, is_milestone,parent_id, estimated_hour, actual_hour,task_type, on_cp, assignees, progress, completed, start_date, end_date, snapshot_date, project_name) VALUES ?', [val]);
         console.log("gantt data inserted");
@@ -193,7 +200,7 @@ const userTaskMap = async (req, res, next) => {
     }
     catch(error){
         await tempConnection.releaseConnection();
-        console.log(err);
+        console.log(error);
         return res.status(500).json({
             status: 0,
             msg: "SERVER ERROR!!"
