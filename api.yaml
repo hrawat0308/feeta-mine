@@ -687,3 +687,41 @@ paths:
                 type: integer
               message:
                 type: string
+  
+  /criticalPath:
+    get:
+      summary: critical path test
+      description: critical path test
+      parameters:
+        - in: query
+          name: project_id
+          type: string
+          description: project id of the
+        - in: query
+          name: snapshot_date
+          type: string
+          description: snapshot date of project
+      responses:
+        200: 
+          description: successfull response
+          schema: 
+            type: string
+
+  /snapshot:
+    delete:
+      summary: delete  snapshot
+      description: delete snapshot shot given project ID and snapshot date
+      parameters:
+        - in: query
+          name: project_id
+          type: string
+          description: project id of the
+        - in: query
+          name: snapshot_date
+          type: string
+          description: snapshot date of project
+      responses:
+        200: 
+          description: successfull response
+          schema: 
+            type: string

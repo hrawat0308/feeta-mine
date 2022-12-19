@@ -2,7 +2,7 @@ const fs = require("fs");
 const axios = require("axios");
 const express = require('express');
 let mysql = require('../Utils/dbConnection');
-
+const criticalPathController = require('./criticalPath');
 let { validationResult } = require('express-validator');
 
 const scrape = async (req, res, next) => {
@@ -86,7 +86,7 @@ const instaganttApi = async (req, res, next) => {
                 }
 
                 val.push([tasks[i].id
-                    , tasks[i].project_id
+                    , project_id
                     , tasks[i].name
                     , tasks[i].subtasks == 0 ? false : true
                     , tasks[i].is_milestone
@@ -94,7 +94,8 @@ const instaganttApi = async (req, res, next) => {
                     , tasks[i].estimated_hours ? "" : 0
                     , tasks[i].actual_hours ? "" : 0
                     , workType
-                    , on_cp
+                    // , on_cp
+                    ,false // input all the tasks on_cp as false, critical path function will change them to true
                     , assignees
                     , parseInt(tasks[i].progress.replace(/[^a-zA-Z0-9 ]/g, ''))
                     , tasks[i].completed == "" ? false : tasks[i].completed 
@@ -105,11 +106,21 @@ const instaganttApi = async (req, res, next) => {
                   ]);
 
                 console.log(tasks[i].dependent_of.length);
-                for (var k = 0; k < tasks[i].dependent_of.length; k++) {
+                if(tasks[i].dependent_of.length > 0){
+                    for (var k = 0; k < tasks[i].dependent_of.length; k++) {
+                        let dpdobj = [];
+                        dpdmap.set(tasks[i].id, tasks[i].dependent_of[k]);
+                        dpdobj.push(tasks[i].id);
+                        dpdobj.push(tasks[i].dependent_of[k]);
+                        dpdobj.push(snapshot_date);
+                        dpdarr.push(dpdobj);
+                    }
+                }
+                else{
                     let dpdobj = [];
-                    dpdmap.set(tasks[i].id, tasks[i].dependent_of[k]);
+                    dpdmap.set(tasks[i].id, "");
                     dpdobj.push(tasks[i].id);
-                    dpdobj.push(tasks[i].dependent_of[k]);
+                    dpdobj.push("");
                     dpdobj.push(snapshot_date);
                     dpdarr.push(dpdobj);
                 }
@@ -147,6 +158,7 @@ const instaganttApi = async (req, res, next) => {
         }
         
         await tempConnection.releaseConnection();
+        await criticalPathController.criticalPath(project_id, snapshot_date);
         return res.status(201).json({ status: 1, 
                                     project_id: project_id, 
                                     snapshot_date: snapshot_date, 

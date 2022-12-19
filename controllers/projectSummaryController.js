@@ -382,8 +382,8 @@ const performanceMetrics = async (req, res, next) => {
     const baseline_date = req.query.baseline_date;
     try{
         tempConnection = await mysql.connection();
-        const basedata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, start_date, end_date, snapshot_date from gantt_chart where snapshot_date = '${baseline_date}' and is_parent = 0  order by start_date`);
-        const actdata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, start_date, end_date, snapshot_date from gantt_chart where snapshot_date = '${snapshot_date}' and is_parent = 0  order by start_date`);
+        const basedata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${baseline_date}' and is_parent = 0  order by start_date`);
+        const actdata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${snapshot_date}' and is_parent = 0  order by start_date`);
         const basedata = JSON.parse(JSON.stringify(basedata_query));
         const actdata = JSON.parse(JSON.stringify(actdata_query));
         const delayArray = [];
@@ -494,6 +494,17 @@ const performanceMetrics = async (req, res, next) => {
             });
         }
 
+        let non_critical_tasks_result = await tempConnection.query(`select uid as task_id from gantt_chart where project_uid = '${project_id}' and snapshot_date='${snapshot_date}' and on_cp is false`);
+        let non_critical_tasks = non_critical_tasks_result.map((non_critical_task)=>{
+            return non_critical_task.task_id;
+        });
+
+        //making all non-critical tasks net delay as 0
+        for(let i = 0; i < delayedArr.length; i++){
+            if(non_critical_tasks.includes(delayArray[i].uid)){
+                delayArray[i].net_delay = 0;
+            }
+        }
         let user_delay = [];
         for (var i = 0; i < delayedArr.length; i++) {
             let res = await tempConnection.query(`select user_id,user_name from user_mapping where user_id in (select assignee_id from user_task_map where task_uid = '${delayedArr[i].uid}' and snapshot_date='${snapshot_date}') and user_project_id = '${project_id}' `);
@@ -569,6 +580,34 @@ const getNote = async (req, res, next) => {
     }
 }
 
+const deleteSnapshot = async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({
+            status: 0,
+            msg: "project ID or Snapshot Date not provided!!"
+        });
+    }
+    const project_id = req.query.project_id;
+    const snapshot_date = req.query.snapshot_date;
+    let tempConnection;
+    try{
+        tempConnection = await mysql.connection();
+        // let query = ``;
+        // await tempConnection.query(query);
+        await tempConnection.releaseConnection();
+        res.json({
+            status: 1,
+            msg: "Dummy function"
+        });
+    }
+    catch(error){
+        await tempConnection.releaseConnection();
+        console.log(error);
+        return res.status(500).json({ status: 0, message: "SERVER_ERROR" });
+    }
+}
+
 
 //**Helper Functions */
 const isSameDay = (d1, d2) => {
@@ -615,8 +654,8 @@ const payload_dates = [
     },
     {
         "name": "Guru Nanak Jayanti",
-        "start": "2022-11-15",
-        "end": "2022-11-17",
+        "start": "2022-10-15",
+        "end": "2022-10-17",
         "id": "eB5kOMfDZiQxnPFHFRCB",
         "is_holiday": true,
         "disabled": false,
@@ -683,3 +722,4 @@ exports.performanceMetrics = performanceMetrics;
 exports.addNote = addNote;
 exports.getNote = getNote;
 exports.loadLatestProjectSummary = loadLatestProjectSummary;
+exports.deleteSnapshot = deleteSnapshot;
