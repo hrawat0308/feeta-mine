@@ -7,14 +7,14 @@ function BellmanFord(graph)
     const path = new Map([
         [graph[0][0],[graph[0][0]]]
     ]);
-
+    console.log(path);
   for(let i = 0; i < graph.length; i++){
     let distance = distance_list.get(graph[i][0]) + graph[i][2];
     if( distance < distance_list.get(graph[i][1]) ){
         distance_list.set(graph[i][1], distance);
 
         if(!path.has(graph[i][0])){
-            let pathstring = graph[i][0].toString() + graph[i][1].toString();
+            let pathstring = graph[i][0].toString()+"-"+graph[i][1].toString();
             let arr = [pathstring];
             path.set(graph[i][1], arr);
         }
@@ -29,11 +29,38 @@ function BellmanFord(graph)
 
   const path_array = path.get(graph[graph.length-1][1])[0].split("-");
   const path_days = distance_list.get(graph[graph.length-1][1]);
-  console.log(path_array);
-  console.log(distance_list);
   return [path_days, path_array];
 }
  
+const Bellman = (graph, V, E, src) => {
+    const dist = create_distance_list_map(graph);
+    const path = new Map([
+        [graph[0][0],[graph[0][0]]]
+    ]);
+    for (var i = 0; i < V - 1; i++)
+    {
+        for (var j = 0; j < E; j++)
+        {
+            if ((dist.get(graph[j][0]) + graph[j][2]) < dist.get(graph[j][1])){
+                dist.set(graph[j][1], dist.get(graph[j][0]) + graph[j][2]);
+                if(!path.has(graph[j][0])){
+                    let pathstring = graph[j][0].toString()+"-"+graph[j][1].toString();
+                    let arr = [pathstring];
+                    path.set(graph[j][1], arr);
+                }
+                else{
+                    let arr = path.get(graph[j][0]);
+                    let latestPath = arr[arr.length-1];
+                    path.set(graph[j][1], [latestPath+"-"+graph[j][1].toString()]);
+                }
+            }
+        }
+    }
+    
+    const path_array = path.get(graph[graph.length-1][1])[0].split("-");
+    const path_days = dist.get(graph[graph.length-1][1]);
+    return [path_days, path_array];
+}
 
 const criticalPath = async (req, res, next) => {
     const project_id = req.query.project_id;
@@ -65,7 +92,11 @@ const criticalPath = async (req, res, next) => {
         let graph;
         graph = create_graph(tasks, milestones);
         console.log(graph);
-        const [path_days, path_array] =  BellmanFord(graph);
+        // const [path_days, path_array] =  BellmanFord(graph);
+        let V = tasks.length + 2;
+        let E = graph.length;
+        let src = graph[0][0];
+        const [path_days, path_array]  = Bellman(graph, V, E, src);
         let result = "start";
         for(let i = 0; i < path_array.length; i++){
             let [{task_title}] = await tempConnection.query(`select task_title from gantt_chart where uid = '${path_array[i]}';`);
@@ -83,7 +114,7 @@ const criticalPath = async (req, res, next) => {
             slack : diffDays(new Date(project_start), new Date(project_end))+1 + path_days,
             project_duration: diffDays(new Date(project_start), new Date(project_end))+1,
             path_days,
-            path_array 
+            path_array,
         }});
     }
     catch(error){
