@@ -380,10 +380,16 @@ const performanceMetrics = async (req, res, next) => {
     const project_id = req.query.project_id;
     const snapshot_date = req.query.snapshot_date;
     const baseline_date = req.query.baseline_date;
+    let working_days;
+    let payload_dates;
     try{
         tempConnection = await mysql.connection();
         const basedata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${baseline_date}' and is_parent = 0  order by start_date`);
         const actdata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${snapshot_date}' and is_parent = 0  order by start_date`);
+        working_days = await tempConnection.query(`select weekends from non_working_days where project_id = '${project_id}' and snapshot_date = '${snapshot_date}'`);
+        working_days = JSON.parse(working_days[0].weekends);
+        payload_dates = await tempConnection.query(`select holidays from non_working_days where project_id = '${project_id}' and snapshot_date = '${snapshot_date}'`);
+        payload_dates = JSON.parse(payload_dates[0].holidays);
         const basedata = JSON.parse(JSON.stringify(basedata_query));
         const actdata = JSON.parse(JSON.stringify(actdata_query));
         const delayArray = [];
@@ -408,7 +414,7 @@ const performanceMetrics = async (req, res, next) => {
         for (var i = 0; i < delayArray.length; i++) {
             if (delayArray[i].base_end_date) {
                 diffAEBE = diffDays_inPerformance(new Date(delayArray[i].end_date), new Date(delayArray[i].base_end_date));
-                numOfNonWorkingDays = checkWeekends(new Date(delayArray[i].start_date), new Date(delayArray[i].end_date));
+                numOfNonWorkingDays = checkWeekends(new Date(delayArray[i].start_date), new Date(delayArray[i].end_date),working_days,payload_dates);
                 // console.log(diffAEBE);
                 delayArray[i]["AEsubBE"] = diffAEBE;
                 delayArray[i]["predec_delay"] = 0;
@@ -629,57 +635,16 @@ const diffDays_inPerformance = (max_date, min_date) =>{
     return dayDiff
 }
 
-// get this from database or somewhere else as this is diff for diff projects
-//This is DUMMY, later get it from payload
-const working_days = {
-    "0": false,
-    "1": true,
-    "2": true,
-    "3": true,
-    "4": true,
-    "5": true,
-    "6": false
-}
-
-//dates array from payload, DUMMY
-const payload_dates = [
-    {
-        "name": "Shiv's vacation",
-        "start": "2022-07-28",
-        "end": "2022-08-18",
-        "id": "3IdPDQyxRIB3P4GwTLcd",
-        "is_holiday": true,
-        "disabled": false,
-        "user_id": "sHrvocS1DHZL4ss1h9xA"
-    },
-    {
-        "name": "Guru Nanak Jayanti",
-        "start": "2022-10-15",
-        "end": "2022-10-17",
-        "id": "eB5kOMfDZiQxnPFHFRCB",
-        "is_holiday": true,
-        "disabled": false,
-        "user_id": false
-    }
-];
-
-const checkWeekends = (start_date, end_date)=>{
+const checkWeekends = (start_date, end_date, working_days, payload_dates)=>{
     let count = 0;
     let loop = new Date(start_date);
     while(loop <= end_date){
-        //checking if any day b/w start and end date was a weekend ????
-
-        //simply checking if the day was saturday or sunday
-        // if(loop.getDay() == 6 || loop.getDay() == 0){
-        //     count++;
-        // }
-        
-        //checking if it was a working day or not by comparing dates from working_day object from JSON payload
+    //checking if it was a working day or not by comparing dates from working_day object from JSON payload
         if(!working_days[loop.getDay()]){
             count++;
         }
-
-        // check if any date b/w start and end date was a company holiday ???
+    
+    // check if any date b/w start and end date was a company holiday ???
         for(let i = 0; i < payload_dates.length; i++){
             if(payload_dates[i]["user_id"] == false){
                 if(payload_dates[i]["start"] == loop.getFullYear()+"-"+(loop.getMonth()+1)+"-"+loop.getDate()){   
@@ -691,7 +656,7 @@ const checkWeekends = (start_date, end_date)=>{
         let newDate = loop.setDate(loop.getDate()+1);
         loop = new Date(newDate);
     }
-    return count;
+    return count;    
 }
 
 const numOfCompanyHoliday = (start_date, end_date) => {

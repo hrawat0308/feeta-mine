@@ -24,6 +24,8 @@ const instaganttApi = async (req, res, next) => {
     let tempConnection;
     let project_name;
     let project_id;
+    let holidays;
+    let weekends;
     const val = [];
     const dpdmap = new Map();
     let dpdarr = [];
@@ -34,7 +36,9 @@ const instaganttApi = async (req, res, next) => {
         if(true){
             // let snapshot = await response.data;
             let snapshot = req.snapshot;
-            const {tasks, project} = snapshot;
+            const {tasks, project, dates, config} = snapshot;
+            holidays = dates ? JSON.stringify(dates) : null;
+            weekends = config.working_days ? JSON.stringify(config.working_days) : null;
             project_name = project.name;
             project_id = project.id;
 
@@ -157,8 +161,15 @@ const instaganttApi = async (req, res, next) => {
             } 
         }
         
+        //insert non working days payload into database
+        await tempConnection.query(`insert into non_working_days (project_id, snapshot_date, weekends, holidays)
+        values (?, ? , ?, ?)`, [project_id, snapshot_date, weekends, holidays]);
+
         await tempConnection.releaseConnection();
+
+        //update on_cp using critical path
         await criticalPathController.criticalPath(project_id, snapshot_date);
+    
         return res.status(201).json({ status: 1, 
                                     project_id: project_id, 
                                     snapshot_date: snapshot_date, 
