@@ -599,18 +599,77 @@ const deleteSnapshot = async (req, res, next) => {
     let tempConnection;
     try{
         tempConnection = await mysql.connection();
-        // let query = ``;
-        // await tempConnection.query(query);
+        
+        // delete from project_master table
+        let query = `select pid from project_master where project_id='${project_id}' and snapshot_date='${snapshot_date}';`;
+        let queryResult = await tempConnection.query(query);
+        let values = [];
+        for(let i = 0; i < queryResult.length; i++){
+            values.push(queryResult[i].pid);
+        }
+        if(values.length != 0){
+            await tempConnection.query(`delete from project_master where pid in (?);`, [values]);
+        }
+        
+        // delete from non_working_days table
+        values = [];
+        query = `select id from non_working_days where project_id='${project_id}' and snapshot_date='${snapshot_date}';`;
+        queryResult = await tempConnection.query(query);
+        for(let i = 0; i < queryResult.length; i++){
+            values.push(queryResult[i].id);       
+        }
+        if(values.length != 0){
+            await tempConnection.query(`delete from non_working_days where id in (?);`, [values]);
+        }
+        
+
+        //delete from depends_on_map table
+        values = [];
+        query = `select dom.dpd_id from depends_on_map dom inner join gantt_chart gc
+        on dom.gantt_uid = gc.uid
+        and gc.project_uid = '${project_id}' and gc.snapshot_date = '${snapshot_date}'
+        and dom.snapshot_date = '${snapshot_date}';`;
+        queryResult = await tempConnection.query(query);
+        for(let i = 0; i < queryResult.length; i++){
+            values.push(queryResult[i].dpd_id);     
+        }
+        if(values.length != 0){
+            await tempConnection.query(`delete from depends_on_map where dpd_id in (?);`, [values]);
+        }
+        
+
+        // delete from gantt_chart table 
+        query = `select task_id from gantt_chart where project_uid='${project_id}' and snapshot_date='${snapshot_date}';`;
+        values = [];
+        queryResult = await tempConnection.query(query);
+        for(let i = 0; i < queryResult.length; i++){
+            values.push(queryResult[i].task_id);
+        }
+        if(values.length != 0){
+            await tempConnection.query(`delete from gantt_chart where task_id in (?);`, [values]);
+        }
+        
+        // delete from user_task_map table
+        values = [];
+        query = `select id from user_task_map where project_id='${project_id}' and snapshot_date='${snapshot_date}';`;
+        queryResult = await tempConnection.query(query);
+        for(let i = 0; i < queryResult.length; i++){
+            values.push(queryResult[i].id);
+        }
+        if(values.length != 0){
+            await tempConnection.query(`delete from user_task_map where id in (?);`, [values]);
+        }
+        
         await tempConnection.releaseConnection();
         res.json({
             status: 1,
-            msg: "Dummy function"
+            msg: "data deleted successfully"
         });
     }
     catch(error){
         await tempConnection.releaseConnection();
         console.log(error);
-        return res.status(500).json({ status: 0, message: "SERVER_ERROR" });
+        return res.status(500).json({ status: 0, message: "SERVER_ERROR", error });
     }
 }
 

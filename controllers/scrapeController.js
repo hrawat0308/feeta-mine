@@ -95,8 +95,8 @@ const instaganttApi = async (req, res, next) => {
                     , tasks[i].subtasks == 0 ? false : true
                     , tasks[i].is_milestone
                     , tasks[i].parent.id ? tasks[i].parent.id : ""
-                    , tasks[i].estimated_hours ? "" : 0
-                    , tasks[i].actual_hours ? "" : 0
+                    , tasks[i].estimated_hours == "" ? 0 : tasks[i].estimated_hours
+                    , tasks[i].actual_hours == "" ? 0 : tasks[i].actual_hours
                     , workType
                     // , on_cp
                     ,false // input all the tasks on_cp as false, critical path function will change them to true

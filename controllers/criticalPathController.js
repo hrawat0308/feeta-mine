@@ -108,7 +108,6 @@ const criticalPath = async (req, res, next) => {
                                     where project_uid = '${project_id}' and snapshot_date = '${snapshot_date}';`);        
         
 
-
         res.json({criticalPath: {
             path : result,
             slack : diffDays(new Date(project_start), new Date(project_end))+1 + path_days,
