@@ -105,9 +105,9 @@ const criticalPath = async (req, res, next) => {
         result = result + " -> end";
         let [{project_start, project_end}] = await tempConnection.query(`select DATE_FORMAT(MIN(start_date), "%Y-%m-%d") as project_start,
                                     DATE_FORMAT(MAX(end_date), "%Y-%m-%d") as project_end from gantt_chart 
-                                    where project_uid = '${project_id}' and snapshot_date = '${snapshot_date}';`);        
+                                    where project_uid = '${project_id}' and snapshot_date = '${snapshot_date}' and is_parent is false;`);        
         
-
+        
         res.json({criticalPath: {
             path : result,
             slack : diffDays(new Date(project_start), new Date(project_end))+1 + path_days,

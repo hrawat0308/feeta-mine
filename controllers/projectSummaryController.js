@@ -59,7 +59,7 @@ const taskContributors = async (req, res, next) => {
     let tempConnection;
     try {
         tempConnection = await mysql.connection();
-        const contributors = await tempConnection.query(`select user_name, user_id from user_mapping`);
+        const contributors = await tempConnection.query(`select distinct user_id, user_name from user_mapping where user_id is not null`);
         await tempConnection.releaseConnection();
         return res.status(200).json({ status: 1, contributors });
     } 
@@ -316,8 +316,8 @@ const taskDetails = async (req, res, next) => {
                 task.user_name = "NA"
                 return task;
             });
-            // return res.status(200).json({ status: 1, task_details_without_assignees });
         }
+        task_details =  [...new Map(task_details.map(v => [v.uid, v])).values()];
         res.status(200).json({ status: 1, task_details });
     }
     catch(error){
@@ -343,7 +343,10 @@ const contributorDetail = async (req, res, next) =>{
     const compare_to = req.query.compare_to;
     try{
         tempConnection = await mysql.connection();
-        const contributorData = await tempConnection.query(`SELECT gantt_chart.project_name, gantt_chart.project_uid, gantt_chart.uid, gantt_chart.task_title, gantt_chart.start_date, gantt_chart.end_date, gantt_chart.task_type, gantt_chart.progress, user_mapping.user_name FROM gantt_chart INNER JOIN user_task_map ON gantt_chart.project_uid=user_task_map.project_id and gantt_chart.uid = user_task_map.task_uid and gantt_chart.snapshot_date = user_task_map.snapshot_date INNER JOIN user_mapping on user_task_map.assignee_id = user_mapping.user_id and user_task_map.assignee_id = '${contributor_id}' and gantt_chart.snapshot_date='${snapshot_date}' and gantt_chart.project_uid = '${project_id}'`);
+        let contributorData = await tempConnection.query(`SELECT gantt_chart.project_name, gantt_chart.project_uid, gantt_chart.uid, gantt_chart.task_title, gantt_chart.start_date, gantt_chart.end_date, gantt_chart.task_type, gantt_chart.progress, user_mapping.user_name FROM gantt_chart INNER JOIN user_task_map ON gantt_chart.project_uid=user_task_map.project_id and gantt_chart.uid = user_task_map.task_uid and gantt_chart.snapshot_date = user_task_map.snapshot_date INNER JOIN user_mapping on user_task_map.assignee_id = user_mapping.user_id and user_task_map.assignee_id = '${contributor_id}' and gantt_chart.snapshot_date='${snapshot_date}' and gantt_chart.project_uid = '${project_id}' order by gantt_chart.start_date`);
+        
+        //removing duplicate entries of tasks
+        contributorData = [...new Map(contributorData.map(v => [v.uid, v])).values()];
         for (var i = 0; i < contributorData.length; i++) {
             //three option for task status ON_TIME, LATE, OVERDUE
             let task_status = "ON_TIME";
@@ -384,14 +387,15 @@ const performanceMetrics = async (req, res, next) => {
     let payload_dates;
     try{
         tempConnection = await mysql.connection();
-        const basedata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${baseline_date}' and is_parent = 0  order by start_date`);
-        const actdata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${snapshot_date}' and is_parent = 0  order by start_date`);
+        const basedata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${baseline_date}' and project_uid = '${project_id}' and is_parent = 0  order by start_date`);
+        const actdata_query = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${snapshot_date}' and project_uid = '${project_id}' and is_parent = 0  order by start_date`);
         working_days = await tempConnection.query(`select weekends from non_working_days where project_id = '${project_id}' and snapshot_date = '${snapshot_date}'`);
         working_days = JSON.parse(working_days[0].weekends);
         payload_dates = await tempConnection.query(`select holidays from non_working_days where project_id = '${project_id}' and snapshot_date = '${snapshot_date}'`);
         payload_dates = JSON.parse(payload_dates[0].holidays);
         const basedata = JSON.parse(JSON.stringify(basedata_query));
         const actdata = JSON.parse(JSON.stringify(actdata_query));
+        psedoMGT(project_id, snapshot_date, baseline_date);
         const delayArray = [];
         const baselineData = [];
         for (var i = 0; i < basedata.length; i++) {
@@ -673,8 +677,97 @@ const deleteSnapshot = async (req, res, next) => {
     }
 }
 
+const psedoMGT = async (projectId, snapshot_date, baseline_date) => {
+    let tempConnection;
+    let baselineData;
+    let actualDataParents;
+    let parentMGT = []; 
+    try{
+        tempConnection = await mysql.connection();
+        //get all MGT from baseline
+        baselineData = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${baseline_date}' and project_uid = '${projectId}' and is_parent = 0 order by start_date`);
+        //get all parents from snapshot
+        actualDataParents = await tempConnection.query(`select task_id, uid,on_cp, task_title, DATE_FORMAT(start_date,"%Y-%m-%d") as start_date, DATE_FORMAT(end_date,"%Y-%m-%d") as end_date, DATE_FORMAT(snapshot_date,"%Y-%m-%d") as snapshot_date from gantt_chart where snapshot_date = '${snapshot_date}' and project_uid = '${projectId}' and is_parent = 1 order by start_date`);
+    
+        //find a mgt which has now become a parent in snapshot
+        parentMGT = baselineData.filter((task)=>{
+            for(let i = 0; i < actualDataParents.length; i++){
+                if(actualDataParents[i].uid == task.uid){
+                    return task;
+                }
+            }
+        });
+        
+        //find assignee of parentMGT in baseline
+        for(let parentIndex = 0; parentIndex < parentMGT.length; parentIndex++){
+            let parent_assignees = await tempConnection.query(`select assignees from gantt_chart where project_uid = '${projectId}' and snapshot_date = '${baseline_date}' and uid = '${parentMGT[parentIndex].uid}';`);
+            parent_assignees = JSON.parse(parent_assignees[0].assignees);
+            //find all subtasks under parentMGT baseline
+            let subtasks = await tempConnection.query(`select uid from gantt_chart where project_uid = '${projectId}' and snapshot_date = '${snapshot_date}' and parent_id = '${parentMGT[parentIndex].uid}'`);
+            //check if baseline task has assignee
+            if(parent_assignees[0]){
+                // check if assignee for mgt baseline and subtasks are same
+                for(let i = 0; i < subtasks.length; i++){
+                    let subtask_assignees = await tempConnection.query(`select assignees from gantt_chart where project_uid = '${projectId}' and snapshot_date = '${snapshot_date}' and uid = '${subtasks[i].uid}';`);
+                    subtask_assignees = JSON.parse(subtask_assignees[0].assignees);
+                    for(let j = 0; j < subtask_assignees.length; j++){
+                        if(subtask_assignees[i]){
+                            if(!parent_assignees.includes(subtask_assignees[i])){
+                                console.log("Abort with warning!!");
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            // else{
+                // proceed to next check
+                let list_predecessor_subtasks = [];
+                let list_predecessor_parentandSubtasks = [];
+                for(let i = 0; i < subtasks.length; i++){
+                    const dpd_result = await tempConnection.query(`select dpd_uid from depends_on_map where gantt_uid = '${subtasks[i].uid}' and snapshot_date = '${snapshot_date}';`);
+                    for(let j = 0; j < dpd_result.length; j++){
+                        if(!list_predecessor_subtasks.includes(dpd_result[j].dpd_uid)){
+                            list_predecessor_subtasks.push(dpd_result[j].dpd_uid);
+                        }
+                    }
+                }
+                const parent_dpd_result = await tempConnection.query(`select dpd_uid from depends_on_map where gantt_uid = '${parentMGT[parentIndex].uid}' and snapshot_date = '${baseline_date}';`);
+                list_predecessor_parentandSubtasks = [...list_predecessor_subtasks];
+                for(let j = 0; j < parent_dpd_result.length; j++){
+                    if(!list_predecessor_parentandSubtasks.includes(parent_dpd_result[j].dpd_uid)){
+                        list_predecessor_parentandSubtasks.push(parent_dpd_result[j].dpd_uid);
+                    }
+                }
+                
+                //check if the two array have same elements to ensure no new dependency have been added
+                if(sameMembers(list_predecessor_subtasks, list_predecessor_parentandSubtasks)){
+                    console.log("baseline and actual snapshots are comparable");
+                }
+                else{
+                    console.log("baseline and actual snapshots are not comparable!!!");
+                    return;
+                }
+            // }
+        }
+    }
+    catch(error){
+        await tempConnection.releaseConnection();
+        console.log(error);
+        return res.status(500).json({ status: 0, message: "SERVER_ERROR", error });
+    }
+}
+
 
 //**Helper Functions */
+const containsAll = (arr1, arr2) => {
+    return arr2.every(arr2Item => arr1.includes(arr2Item));
+}
+
+const sameMembers = (arr1, arr2) => {
+    return containsAll(arr1, arr2) && containsAll(arr2, arr1);
+}
+
 const isSameDay = (d1, d2) => {
     return d1.getFullYear() === d2.getFullYear() &&
       d1.getDate() === d2.getDate() &&
@@ -747,3 +840,4 @@ exports.addNote = addNote;
 exports.getNote = getNote;
 exports.loadLatestProjectSummary = loadLatestProjectSummary;
 exports.deleteSnapshot = deleteSnapshot;
+exports.psedoMGT = psedoMGT;

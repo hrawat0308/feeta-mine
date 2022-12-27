@@ -15,7 +15,7 @@ const scrape = async (req, res, next) => {
     }
     
     await instaganttApi(req, res, next);
-    await userTaskMap(req, res, next);
+    
 }
 
 const instaganttApi = async (req, res, next) => {
@@ -169,7 +169,7 @@ const instaganttApi = async (req, res, next) => {
 
         //update on_cp using critical path
         await criticalPathController.criticalPath(project_id, snapshot_date);
-    
+        await userTaskMap(req, res, next);
         return res.status(201).json({ status: 1, 
                                     project_id: project_id, 
                                     snapshot_date: snapshot_date, 
