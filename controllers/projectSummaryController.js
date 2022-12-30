@@ -10,9 +10,10 @@ const allProjects = async (req, res, next) => {
     let tempConnection;
     try{
         tempConnection = await mysql.connection();
-        const projects = await tempConnection.query(`select DISTINCT gantt_chart.project_name, gantt_chart.project_uid from gantt_chart`);
+        let projects = await tempConnection.query(`select DISTINCT gantt_chart.project_name, gantt_chart.project_uid from gantt_chart`);
         await tempConnection.releaseConnection();
-        return res.status(200).json({ status: 1, projects });
+        projects = [...new Map(projects.map(v => [v.project_uid, v])).values()];
+        res.json({ status: 1, projects });
     } 
     catch (error){
         await tempConnection.releaseConnection();
@@ -36,16 +37,9 @@ const snapshotDates = async (req, res, next) => {
     let tempConnection;
     try{
         tempConnection = await mysql.connection();
-        // const snapshot_dates = await tempConnection.query(`SELECT DISTINCT snapshot_date FROM gantt_chart WHERE project_uid='${project_id}'`);
         const snapshot_dates = await tempConnection.query(`select distinct DATE_FORMAT(snapshot_date, "%Y-%m-%d") as snapshot_date from gantt_chart where project_uid = '${project_id}';`);
-        let snapshotDates = [];
-        for(let i = 0; i < snapshot_dates.length; i++){
-            snapshotDates.push({
-                snapshot_date: new Date(snapshot_dates[i].snapshot_date).toISOString().substring(0,10)
-            });
-        }
         await tempConnection.releaseConnection();
-        return res.status(200).json({ status: 1, snapshotDates });
+        return res.status(200).json({ status: 1, snapshotDates : snapshot_dates });
     }
     catch(error){
         await tempConnection.releaseConnection();
@@ -61,7 +55,7 @@ const taskContributors = async (req, res, next) => {
         tempConnection = await mysql.connection();
         const contributors = await tempConnection.query(`select distinct user_id, user_name from user_mapping where user_id is not null`);
         await tempConnection.releaseConnection();
-        return res.status(200).json({ status: 1, contributors });
+        res.json({ status: 1, contributors });
     } 
     catch (error) {
         await tempConnection.releaseConnection();
@@ -214,16 +208,13 @@ const projectSummary = async (req, res, next) => {
         overdue_tasks_data = await tempConnection.query(`select task_id, task_title, end_date, assignees from gantt_chart  where project_uid = '${project_id}' and snapshot_date='${snapshot_date}' and snapshot_date > end_date and completed=0;`);
         
         for (var i = 0; i < overdue_tasks_data.length; i++) {
-            //this is dummy delay days, later compute the delay days here
-            overdue_tasks_data[i].delay_days = 2;
+            overdue_tasks_data[i].delay_days = diffDays(new Date(snapshot_date), new Date(overdue_tasks_data[i].end_date));
             let assignee_names = [];
             const assignee = JSON.parse(overdue_tasks_data[i].assignees);
-            // console.log(assignee);
             for (var j = 0; j < assignee.length; j++) {
                 const user_names = await tempConnection.query(`select user_name from user_mapping where user_id = '${assignee[j]}'`);
                 if (!(user_names[0] == null)) {
                     assignee_names.push(user_names[0].user_name);
-                    // console.log(assignee_names)
                 }
                 else {
                     assignee_names.push("NA");
@@ -311,11 +302,13 @@ const taskDetails = async (req, res, next) => {
             and gantt_chart.snapshot_date = user_task_map.snapshot_date
             and gantt_chart.is_Parent = false and gantt_chart.is_milestone = false 
             and gantt_chart.snapshot_date='${snapshot_date}' and gantt_chart.project_uid = '${project_id}';`);
-        
+            await tempConnection.releaseConnection();
             task_details = task_details_without_assignees.map((task)=>{
                 task.user_name = "NA"
                 return task;
             });
+        }else{
+            await tempConnection.releaseConnection();
         }
         task_details =  [...new Map(task_details.map(v => [v.uid, v])).values()];
         res.status(200).json({ status: 1, task_details });
@@ -531,9 +524,9 @@ const performanceMetrics = async (req, res, next) => {
                 });
             }
         }
+        await tempConnection.releaseConnection();
         console.log("This is user delay", user_delay);
         res.json({ msg: "done", basedata, actdata, delayedArr, dpdMapping, dpdMappingBaseline, user_delay});
-        await tempConnection.releaseConnection();
     }
     catch(error){
         await tempConnection.releaseConnection();
@@ -758,6 +751,120 @@ const psedoMGT = async (projectId, snapshot_date, baseline_date) => {
     }
 }
 
+const addBuffer = async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({
+            status: 0,
+            msg: "project ID or Snapshot Date not provided!!"
+        });
+    }
+    let tempConnection;
+    let projectID = req.query.project_id;
+    let techDifficulty = req.query.techDifficulty == 'low' ? 1 : req.query.techDifficulty == 'medium' ? 2 : req.query.techDifficulty == 'high' ? 3 : -1;
+    let taskInterdpd = req.query.taskInterdpd == 'low' ? 1 : req.query.taskInterdpd == 'medium' ? 2 : req.query.taskInterdpd == 'high' ? 3 : -1;
+    let projectDuration = -1;
+    let buffer;
+    try{
+        tempConnection = await mysql.connection();
+        const oldest_snapshot_date = await tempConnection.query(`select DATE_FORMAT(min(snapshot_date), "%Y-%m-%d") as snapshot_date from gantt_chart where project_uid = '${projectID}'`);
+        const projectDates = await tempConnection.query(`select DATE_FORMAT(min(start_date), "%Y-%m-%d") as start_date, DATE_FORMAT(MAX(end_date), "%Y-%m-%d") as due_date, DATE_FORMAT(snapshot_date, "%Y-%m-%d") as curr_date from gantt_chart where project_uid = '${projectID}' and snapshot_date = '${oldest_snapshot_date[0].snapshot_date}';`);
+        await tempConnection.releaseConnection();
+        const start_date = new Date(projectDates[0].start_date);
+        const due_date = new Date(projectDates[0].due_date);
+        projectDuration = diffDays(due_date, start_date)+1;
+        projectDuration = projectDuration/30;
+        buffer = projectDuration * (techDifficulty + taskInterdpd);
+        res.json({
+            projectDuration,
+            techDifficulty,
+            taskInterdpd,
+            buffer
+        });
+    }
+    catch(error){
+        await tempConnection.releaseConnection();
+        console.log(error);
+        return res.status(500).json({ status: 0, message: "SERVER_ERROR", error });
+    }
+}
+
+const progressBasedDuration = async (req, res, next) => {
+    const projectID = req.query.project_id;
+    const snapshot_date = req.query.snapshot_date;
+    let tempConnection;
+    try{
+        tempConnection = await mysql.connection();
+        let progress = await tempConnection.query(`select (SUM((progress * (DATEDIFF(end_date, start_date)+1))) / SUM(DATEDIFF(end_date, start_date)+1)) as progress 
+        from gantt_chart where project_uid = '${projectID}' and snapshot_date = '${snapshot_date}' 
+        and is_parent is false;`);
+        await tempConnection.releaseConnection();
+        progress = parseFloat(progress[0].progress);
+        res.json({
+            status: 1,
+            progress
+        });
+    }
+    catch(error){
+        await tempConnection.releaseConnection();
+        console.log(error);
+        return res.status(500).json({ status: 0, message: "SERVER_ERROR", error });
+    }
+}
+
+const progressBasedEffort = async (req, res, next) => {
+    const projectID = req.query.project_id;
+    const snapshot_date = req.query.snapshot_date;
+    let tempConnection;
+    try{
+        tempConnection = await mysql.connection();
+        const progressData = await tempConnection.query(`select estimated_hour, actual_hour, completed, (DATEDIFF(end_date,start_date)+1) as days from gantt_chart 
+        where project_uid = '${projectID}' 
+        and snapshot_date = '${snapshot_date}' 
+        and is_parent is false;`);
+        await tempConnection.releaseConnection();
+        let effort = 0;
+        let totalEffort = 0;
+        progressData.forEach((prog)=>{
+            if(prog.completed){
+                if(prog.actual_hour){
+                    effort = effort + prog.actual_hour;
+                    totalEffort = totalEffort + prog.actual_hour;
+                }
+                else if(prog.estimated_hour){
+                    effort = effort + prog.estimated_hour;
+                    totalEffort = totalEffort + prog.estimated_hour;    
+                }
+                else{
+                    effort = effort + (6 * prog.days);
+                    totalEffort = totalEffort + (6 * prog.days);
+                }
+            }
+            else{
+                if(prog.actual_hour){
+                    totalEffort = totalEffort + prog.actual_hour;
+                }
+                else if(prog.estimated_hour){
+                    totalEffort = totalEffort + prog.estimated_hour;    
+                }
+                else{
+                    totalEffort = totalEffort + (6 * prog.days);
+                }
+            }
+        });
+        res.json({
+            status: 1,
+            effort,
+            totalEffort,
+            progress : parseFloat(((effort/totalEffort)*100).toFixed(3))
+        });
+    }
+    catch(error){
+        await tempConnection.releaseConnection();
+        console.log(error);
+        return res.status(500).json({ status: 0, message: "SERVER_ERROR", error });
+    }
+}
 
 //**Helper Functions */
 const containsAll = (arr1, arr2) => {
@@ -841,3 +948,6 @@ exports.getNote = getNote;
 exports.loadLatestProjectSummary = loadLatestProjectSummary;
 exports.deleteSnapshot = deleteSnapshot;
 exports.psedoMGT = psedoMGT;
+exports.addBuffer = addBuffer;
+exports.progressBasedDuration = progressBasedDuration;
+exports.progressBasedEffort = progressBasedEffort;

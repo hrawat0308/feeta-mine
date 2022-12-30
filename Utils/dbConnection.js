@@ -4,6 +4,8 @@ let pool = require('../config/database').pool;
 const connection = () => {
     return new Promise((resolve, reject) => {
         pool.getConnection((error, tempConnection) => {
+            console.info("All Connections", pool._allConnections.length);
+            console.info("free Connections", pool._freeConnections.length);
             if(error)
                return reject(error);
             const query = (sqlQuery, bindParams) => {

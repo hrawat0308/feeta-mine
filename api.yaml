@@ -725,3 +725,77 @@ paths:
           description: successfull response
           schema: 
             type: string
+  
+  /buffer:
+    post:
+      summary: add buffer to a project
+      description: add buffer to a project, buffer will be added to a project only once and will be valid for every snapshot of a project.
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          type: string
+          description: project id of the
+        - in: query
+          name: techDifficulty
+          required: true
+          type: string
+          enum: ["low", "medium", "high"] 
+          description: What is the technical difficulty of the project?
+        - in: query  
+          name: taskInterdpd
+          required : true
+          type: string
+          enum: ["low", "medium", "high"]
+          description: What is the level of task interdependence in the project?
+      responses:
+        200: 
+          description: successfull response
+          schema: 
+            type: string
+  
+  /progress/durationBased:
+    get:
+      summary: find progress based on duration
+      description: find progress of a project based on task durations
+      tags:
+        - test
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          type: string
+          description: project id of the
+        - in: query
+          name: snapshot_date
+          required: true
+          type: string
+          description: snapshot date of project
+      responses:
+        200: 
+          description: successfull response
+          schema: 
+            type: string
+
+  /progress/effortBased:
+    get:
+      summary: find progress based on duration
+      description: find progress of a project based on task durations
+      tags:
+        - test
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          type: string
+          description: project id of the
+        - in: query
+          name: snapshot_date
+          required: true
+          type: string
+          description: snapshot date of project
+      responses:
+        200: 
+          description: successfull response
+          schema: 
+            type: string

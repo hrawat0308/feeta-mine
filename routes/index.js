@@ -27,9 +27,14 @@ router.get('/get-notes/:id', projectSummaryController.getNote);
 router.get('/latest-project-summary', projectSummaryController.loadLatestProjectSummary);
 router.delete('/snapshot', projectSummaryController.deleteSnapshot);
 router.get('/criticalPath', criticalPathController.criticalPath);
+router.post('/buffer', projectSummaryController.addBuffer);
 
 //**NO validation required */
 router.get('/all-projects', projectSummaryController.allProjects);
 router.get('/task-contributors', projectSummaryController.taskContributors);
+
+//** Test Routes */
+router.get('/progress/durationBased', projectSummaryController.progressBasedDuration);
+router.get('/progress/effortBased', projectSummaryController.progressBasedEffort);
 
 module.exports = router;
