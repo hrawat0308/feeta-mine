@@ -22,6 +22,7 @@ schemes: [http, https]
   #   in: header
 
 host: localhost:3000
+#host: feeta.thelattice.org 
 basePath: /api
 paths:
   

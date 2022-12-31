@@ -219,6 +219,7 @@ const userTaskMap = async (req, res, next) => {
         }
     
         await tempConnection.query('INSERT INTO user_task_map (project_id, task_uid, assignee_id, snapshot_date) VALUES ?', [userTaskVal]);
+        await tempConnection.releaseConnection();
         console.log("user_task_map data inserted!!");
     }
     catch(error){
